@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FSOCIETY // Вход</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0f;
+            color: #00ff88;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #matrix-bg {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1;
+            background: #0a0a0f;
+            overflow: hidden;
+        }
+        #matrix-bg canvas { display: block; width: 100%; height: 100%; }
+
+        .container {
+            max-width: 450px;
+            width: 100%;
+            background: rgba(0,255,136,0.03);
+            border: 1px solid #00ff8844;
+            border-radius: 16px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 60px rgba(0,255,136,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .header h1 {
+            font-size: 24px;
+            letter-spacing: 4px;
+            color: #00ff88;
+            text-shadow: 0 0 20px rgba(0,255,136,0.3);
+        }
+        .header h1 span { color: #ff3366; }
+        .header p {
+            color: #666;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .step { display: none; }
+        .step.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .form-group { margin-bottom: 15px; }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: #00ff88;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .form-group input {
+            width: 100%;
+            background: #111;
+            border: 1px solid #00ff8844;
+            border-radius: 8px;
+            padding: 12px 14px;
+            color: #00ff88;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            transition: 0.2s;
+        }
+        .form-group input:focus {
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0,255,136,0.2);
+        }
+        .form-group input::placeholder { color: #444; }
+
+        .btn {
+            width: 100%;
+            background: #00ff88;
+            border: none;
+            border-radius: 8px;
+            padding: 14px;
+            color: #0a0a0f;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-top: 10px;
+            transition: 0.2s;
+        }
+        .btn:hover {
+            background: #33ff99;
+            box-shadow: 0 0 25px rgba(0,255,136,0.4);
+        }
+        .btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid #00ff8844;
+            color: #00ff88;
+        }
+        .btn-secondary:hover {
+            background: rgba(0,255,136,0.1);
+            box-shadow: none;
+        }
+
+        .error {
+            background: rgba(255,51,102,0.1);
+            border: 1px solid #ff3366;
+            border-radius: 8px;
+            padding: 10px;
+            color: #ff6699;
+            font-size: 12px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .error.show { display: block; }
+
+        .success {
+            background: rgba(0,255,136,0.1);
+            border: 1px solid #00ff88;
+            border-radius: 8px;
+            padding: 10px;
+            color: #66ffaa;
+            font-size: 12px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .success.show { display: block; }
+
+        .info {
+            background: rgba(102,204,255,0.1);
+            border: 1px solid #66ccff;
+            border-radius: 8px;
+            padding: 10px;
+            color: #66ccff;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+
+        .footer-link {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+        }
+        .footer-link a {
+            color: #00ff88;
+            text-decoration: none;
+        }
+        .footer-link a:hover { text-decoration: underline; }
+
+        .code-inputs {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .code-inputs input {
+            width: 50px;
+            height: 60px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            background: #111;
+            border: 1px solid #00ff8844;
+            border-radius: 8px;
+            color: #00ff88;
+            outline: none;
+            font-family: 'Courier New', monospace;
+        }
+        .code-inputs input:focus {
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0,255,136,0.3);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #0a0a0f;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #00ff88; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div id="matrix-bg"><canvas id="matrixCanvas"></canvas></div>
+
+<div class="container">
+    <div class="header">
+        <h1>FSOCIETY <span>//</span> ВХОД</h1>
+        <p>Войди в свой аккаунт</p>
+    </div>
+
+    <div class="error" id="errorBox"></div>
+    <div class="success" id="successBox"></div>
+
+    <!-- ============================================ -->
+    <!-- ШАГ 1: НИК + ПАРОЛЬ -->
+    <!-- ============================================ -->
+    <div class="step active" id="step1">
+        <div class="form-group">
+            <label>Никнейм</label>
+            <input type="text" id="nickname" placeholder="hacker1337" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+            <label>Пароль</label>
+            <input type="password" id="password" placeholder="••••••••">
+        </div>
+
+        <button class="btn" id="btnLogin" onclick="loginStep1()">
+            <span id="btnLoginText">Войти</span>
+        </button>
+
+        <div class="footer-link">
+            Нет аккаунта? <a href="/register">Зарегистрироваться</a>
+        </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- ШАГ 2: КОД -->
+    <!-- ============================================ -->
+    <div class="step" id="step2">
+        <div class="info">
+            📧 Код отправлен на твою почту<br>
+            Код действует 5 минут.
+        </div>
+
+        <div class="form-group">
+            <label>Код из письма</label>
+            <div class="code-inputs">
+                <input type="text" maxlength="1" id="c1" oninput="moveNext(this, 'c2')">
+                <input type="text" maxlength="1" id="c2" oninput="moveNext(this, 'c3')">
+                <input type="text" maxlength="1" id="c3" oninput="moveNext(this, 'c4')">
+                <input type="text" maxlength="1" id="c4" oninput="moveNext(this, 'c5')">
+                <input type="text" maxlength="1" id="c5" oninput="moveNext(this, 'c6')">
+                <input type="text" maxlength="1" id="c6" oninput="checkComplete()">
+            </div>
+        </div>
+
+        <button class="btn" id="btnVerify" onclick="loginStep2()">
+            <span id="btnVerifyText">Подтвердить</span>
+        </button>
+
+        <button class="btn btn-secondary" onclick="backToStep1()">
+            ← Назад
+        </button>
+
+        <div class="footer-link">
+            Не пришёл код? <a href="#" onclick="resendCode(); return false;">Отправить снова</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ===== МАТРИЦА =====
+    const canvas = document.getElementById('matrixCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const cols = Math.floor(canvas.width / 16);
+    const drops = Array(cols).fill(1);
+    const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+
+    function drawMatrix() {
+        ctx.fillStyle = 'rgba(10, 10, 15, 0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = '16px monospace';
+        for (let i = 0; i < cols; i++) {
+            const char = chars[Math.floor(Math.random() * chars.length)];
+            ctx.fillStyle = `rgba(0, 255, 136, ${0.1 + Math.random() * 0.3})`;
+            ctx.fillText(char, i * 16, drops[i] * 16);
+            if (drops[i] * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+    setInterval(drawMatrix, 50);
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    });
+
+    // ===== ПЕРЕМЕННЫЕ =====
+    let currentNickname = "";
+    let currentPassword = "";
+
+    // ===== ВХОД ШАГ 1 =====
+    async function loginStep1() {
+        const nickname = document.getElementById('nickname').value.trim();
+        const password = document.getElementById('password').value;
+
+        hideMessages();
+
+        if (!nickname || !password) {
+            showError('Заполни все поля');
+            return;
+        }
+
+        const btn = document.getElementById('btnLogin');
+        btn.disabled = true;
+        document.getElementById('btnLoginText').innerHTML = '<span class="spinner"></span>Проверка...';
+
+        try {
+            const response = await fetch('/login_step1', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({nickname: nickname, password: password})
+            });
+
+            const data = await response.json();
+
+            if (data.ok) {
+                currentNickname = nickname;
+                currentPassword = password;
+                showSuccess('Код отправлен на email!');
+                setTimeout(() => {
+                    document.getElementById('step1').classList.remove('active');
+                    document.getElementById('step2').classList.add('active');
+                    document.getElementById('c1').focus();
+                }, 1000);
+            } else {
+                showError(data.message || data.error || 'Ошибка');
+                btn.disabled = false;
+                document.getElementById('btnLoginText').textContent = 'Войти';
+            }
+        } catch (e) {
+            showError('Ошибка сети: ' + e);
+            btn.disabled = false;
+            document.getElementById('btnLoginText').textContent = 'Войти';
+        }
+    }
+
+    // ===== ВХОД ШАГ 2 =====
+    async function loginStep2() {
+        const code = getCode();
+        hideMessages();
+
+        if (code.length !== 6) {
+            showError('Введи 6-значный код');
+            return;
+        }
+
+        const btn = document.getElementById('btnVerify');
+        btn.disabled = true;
+        document.getElementById('btnVerifyText').innerHTML = '<span class="spinner"></span>Проверка...';
+
+        try {
+            const response = await fetch('/login_step2', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    nickname: currentNickname,
+                    code: code
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.ok) {
+                showSuccess('Вход выполнен! Переход...');
+                localStorage.setItem('fsociety_user', JSON.stringify(data.user));
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1500);
+            } else {
+                showError(data.message || data.error || 'Неверный код');
+                btn.disabled = false;
+                document.getElementById('btnVerifyText').textContent = 'Подтвердить';
+            }
+        } catch (e) {
+            showError('Ошибка сети: ' + e);
+            btn.disabled = false;
+            document.getElementById('btnVerifyText').textContent = 'Подтвердить';
+        }
+    }
+
+    // ===== НАЗАД =====
+    function backToStep1() {
+        document.getElementById('step2').classList.remove('active');
+        document.getElementById('step1').classList.add('active');
+        hideMessages();
+        document.getElementById('btnLogin').disabled = false;
+        document.getElementById('btnLoginText').textContent = 'Войти';
+    }
+
+    // ===== КОД =====
+    function getCode() {
+        let code = '';
+        for (let i = 1; i <= 6; i++) {
+            code += document.getElementById('c' + i).value;
+        }
+        return code;
+    }
+
+    function moveNext(current, nextId) {
+        if (current.value.length === 1) {
+            document.getElementById(nextId).focus();
+        }
+    }
+
+    function checkComplete() {}
+
+    // ===== ПЕРЕОТПРАВКА =====
+    async function resendCode() {
+        hideMessages();
+        try {
+            const response = await fetch('/login_step1', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({nickname: currentNickname, password: currentPassword})
+            });
+            const data = await response.json();
+            if (data.ok) showSuccess('Код отправлен повторно!');
+            else showError(data.message || data.error || 'Ошибка');
+        } catch (e) {
+            showError('Ошибка: ' + e);
+        }
+    }
+
+    // ===== СООБЩЕНИЯ =====
+    function showError(msg) {
+        const el = document.getElementById('errorBox');
+        el.textContent = '❌ ' + msg;
+        el.classList.add('show');
+    }
+    function showSuccess(msg) {
+        const el = document.getElementById('successBox');
+        el.textContent = '✅ ' + msg;
+        el.classList.add('show');
+    }
+    function hideMessages() {
+        document.getElementById('errorBox').classList.remove('show');
+        document.getElementById('successBox').classList.remove('show');
+    }
+
+    // ===== ENTER =====
+    document.getElementById('nickname').addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginStep1();
+    });
+    document.getElementById('password').addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginStep1();
+    });
+</script>
+
+</body>
+</html>

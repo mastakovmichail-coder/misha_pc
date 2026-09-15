@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FSOCIETY // PC CONTROL</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0f;
+            color: #00ff88;
+            padding: 15px;
+            min-height: 100vh;
+        }
+        #matrix-bg {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1;
+            background: #0a0a0f;
+            overflow: hidden;
+        }
+        #matrix-bg canvas { display: block; width: 100%; height: 100%; }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #00ff8844;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .header h1 {
+            font-size: 24px;
+            letter-spacing: 4px;
+            color: #00ff88;
+            text-shadow: 0 0 20px rgba(0,255,136,0.3);
+        }
+        .header h1 span { color: #ff3366; }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0,255,136,0.05);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid #00ff8844;
+            font-size: 12px;
+        }
+        .status-badge .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            background: rgba(0,255,136,0.05);
+            border: 1px solid #00ff8844;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: #00ff88;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            transition: 0.2s;
+        }
+        .tab:hover { background: rgba(0,255,136,0.15); }
+        .tab.active {
+            background: #00ff88;
+            color: #0a0a0f;
+            font-weight: bold;
+        }
+
+        .panel {
+            display: none;
+            background: rgba(0,255,136,0.03);
+            border: 1px solid #00ff8844;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .panel.active { display: block; }
+
+        .panel-title {
+            font-size: 14px;
+            color: #00ff88;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .panel-title .count {
+            background: rgba(0,255,136,0.1);
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 6px;
+        }
+
+        .btn {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #1a1a2e;
+            border-radius: 8px;
+            padding: 10px 6px;
+            color: #c0c0c0;
+            font-size: 11px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            line-height: 1.3;
+        }
+        .btn:hover {
+            background: rgba(0,255,136,0.1);
+            border-color: #00ff88;
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .btn .icon {
+            font-size: 18px;
+            display: block;
+            margin-bottom: 3px;
+        }
+        .btn.danger { border-color: rgba(255,51,102,0.3); color: #ff6699; }
+        .btn.danger:hover { background: rgba(255,51,102,0.15); border-color: #ff3366; }
+        .btn.warning { border-color: rgba(255,170,0,0.3); color: #ffaa33; }
+        .btn.warning:hover { background: rgba(255,170,0,0.15); border-color: #ffaa00; }
+        .btn.success { border-color: rgba(0,255,136,0.2); color: #66ffaa; }
+        .btn.success:hover { background: rgba(0,255,136,0.1); border-color: #00ff88; }
+        .btn.purple { border-color: rgba(170,102,255,0.2); color: #bb77ff; }
+        .btn.purple:hover { background: rgba(170,102,255,0.1); border-color: #aa66ff; }
+        .btn.cyan { border-color: rgba(0,255,255,0.2); color: #66ffff; }
+        .btn.cyan:hover { background: rgba(0,255,255,0.1); border-color: #00ffff; }
+        .btn.pink { border-color: rgba(255,105,180,0.2); color: #ff77bb; }
+        .btn.pink:hover { background: rgba(255,105,180,0.1); border-color: #ff69b4; }
+
+        .cmd-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .cmd-row input {
+            flex: 1;
+            background: #111;
+            border: 1px solid #00ff8844;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #00ff88;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+        }
+        .cmd-row input:focus { border-color: #00ff88; }
+        .cmd-row button {
+            background: #00ff88;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            color: #0a0a0f;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+        }
+        .cmd-row button:hover { background: #33ff99; }
+
+        .log {
+            background: #0a0a0f;
+            border: 1px solid #00ff8844;
+            border-radius: 10px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 11px;
+            margin-top: 10px;
+        }
+        .log span {
+            display: block;
+            padding: 2px 0;
+            color: #666;
+            border-bottom: 1px solid rgba(0,255,136,0.05);
+        }
+        .log .ok { color: #00ff88; }
+        .log .err { color: #ff3366; }
+        .log .warn { color: #ffaa00; }
+        .log .info { color: #66ccff; }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #00ff88; border-radius: 10px; }
+
+        @media (max-width: 600px) {
+            .grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+            .header h1 { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="matrix-bg"><canvas id="matrixCanvas"></canvas></div>
+
+<div class="container">
+    <div class="header">
+        <h1>FSOCIETY <span>//</span> PC CONTROL</h1>
+        <div class="status-badge">
+            <span class="dot"></span>
+            <span id="statusText">Подключено</span>
+            <span>| Команд: <b id="cmdCount">0</b></span>
+        </div>
+    </div>
+
+    <!-- ВКЛАДКИ -->
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('power', this)">⚡ Питание</button>
+        <button class="tab" onclick="showTab('screen', this)">🖥️ Экран</button>
+        <button class="tab" onclick="showTab('programs', this)">📁 Программы</button>
+        <button class="tab" onclick="showTab('sites', this)">🌐 Сайты</button>
+        <button class="tab" onclick="showTab('jokes', this)">🎭 Приколы</button>
+        <button class="tab" onclick="showTab('system', this)">🛠️ Система</button>
+        <button class="tab" onclick="showTab('files', this)">📂 Файлы</button>
+        <button class="tab" onclick="showTab('mouse', this)">🖱️ Мышь</button>
+        <button class="tab" onclick="showTab('wallpaper', this)">🖼️ Обои</button>
+        <button class="tab" onclick="showTab('registry', this)">📝 Реестр</button>
+        <button class="tab" onclick="showTab('services', this)">⚙️ Службы</button>
+        <button class="tab" onclick="showTab('users', this)">👤 Юзеры</button>
+        <button class="tab" onclick="showTab('network', this)">🌍 Сеть</button>
+        <button class="tab" onclick="showTab('notify', this)">💬 Уведомления</button>
+        <button class="tab" onclick="showTab('custom', this)">⌨️ Своя команда</button>
+    </div>
+
+    <!-- ===== 1. ПИТАНИЕ ===== -->
+    <div class="panel active" id="tab-power">
+        <div class="panel-title">⚡ Питание <span class="count">10</span></div>
+        <div class="grid">
+            <button class="btn danger" onclick="run('shutdown')"><span class="icon">⛔</span>Выключить</button>
+            <button class="btn danger" onclick="run('restart')"><span class="icon">🔄</span>Перезагрузить</button>
+            <button class="btn danger" onclick="run('lock')"><span class="icon">🔒</span>Блокировка</button>
+            <button class="btn warning" onclick="run('logout')"><span class="icon">🚪</span>Выйти</button>
+            <button class="btn warning" onclick="run('sleep')"><span class="icon">💤</span>Спящий режим</button>
+            <button class="btn warning" onclick="run('hibernate')"><span class="icon">💤</span>Гибернация</button>
+            <button class="btn success" onclick="run('cancel_shutdown')"><span class="icon">⏹️</span>Отмена</button>
+            <button class="btn warning" onclick="runArg('shutdown_timer', prompt('Секунд:', 60))"><span class="icon">⏱️</span>Таймер выкл.</button>
+            <button class="btn warning" onclick="runArg('restart_timer', prompt('Секунд:', 60))"><span class="icon">⏱️</span>Таймер перез.</button>
+            <button class="btn danger" onclick="run('lock_keyboard')"><span class="icon">🔒</span>Блок клавы</button>
+        </div>
+    </div>
+
+    <!-- ===== 2. ЭКРАН ===== -->
+    <div class="panel" id="tab-screen">
+        <div class="panel-title">🖥️ Экран <span class="count">16</span></div>
+        <div class="grid">
+            <button class="btn success" onclick="run('screenshot_save')"><span class="icon">📸</span>Скриншот</button>
+            <button class="btn warning" onclick="run('monitor_off')"><span class="icon">🖥️</span>Выкл. монитор</button>
+            <button class="btn success" onclick="run('monitor_on')"><span class="icon">🖥️</span>Вкл. монитор</button>
+            <button class="btn warning" onclick="run('monitor_standby')"><span class="icon">💤</span>Ожидание</button>
+            <button class="btn cyan" onclick="run('rotate_90')"><span class="icon">🔄</span>Поворот 90°</button>
+            <button class="btn cyan" onclick="run('rotate_180')"><span class="icon">🔄</span>Поворот 180°</button>
+            <button class="btn cyan" onclick="run('rotate_270')"><span class="icon">🔄</span>Поворот 270°</button>
+            <button class="btn cyan" onclick="run('rotate_0')"><span class="icon">🔄</span>Сброс поворота</button>
+            <button class="btn purple" onclick="run('cursor_0_0')"><span class="icon">🖱️</span>Курсор 0,0</button>
+            <button class="btn purple" onclick="run('screen_resolution')"><span class="icon">📐</span>Разрешение</button>
+            <button class="btn purple" onclick="run('screen_info')"><span class="icon">🖥️</span>Инфо экрана</button>
+            <button class="btn warning" onclick="run('record_screen')"><span class="icon">🎥</span>Запись экрана</button>
+            <button class="btn pink" onclick="run('take_photo')"><span class="icon">📷</span>Фото с камеры</button>
+            <button class="btn warning" onclick="run('brightness_up')"><span class="icon">🔆</span>Яркость +</button>
+            <button class="btn warning" onclick="run('brightness_down')"><span class="icon">🔅</span>Яркость -</button>
+            <button class="btn success" onclick="window.open('/screenshot','_blank')"><span class="icon">👁️</span>Показать экран</button>
+        </div>
+    </div>
+
+    <!-- ===== 3. ПРОГРАММЫ ===== -->
+    <div class="panel" id="tab-programs">
+        <div class="panel-title">📁 Программы <span class="count">31</span></div>
+        <div class="grid">
+            <button class="btn purple" onclick="run('cmd')"><span class="icon">💻</span>CMD</button>
+            <button class="btn purple" onclick="run('powershell')"><span class="icon">⚡</span>PowerShell</button>
+            <button class="btn purple" onclick="run('notepad')"><span class="icon">📝</span>Блокнот</button>
+            <button class="btn purple" onclick="run('calc')"><span class="icon">🧮</span>Калькулятор</button>
+            <button class="btn purple" onclick="run('explorer')"><span class="icon">📂</span>Проводник</button>
+            <button class="btn purple" onclick="run('taskmgr')"><span class="icon">📊</span>Диспетчер</button>
+            <button class="btn purple" onclick="run('paint')"><span class="icon">🎨</span>Paint</button>
+            <button class="btn purple" onclick="run('snippingtool')"><span class="icon">✂️</span>Ножницы</button>
+            <button class="btn purple" onclick="run('control')"><span class="icon">⚙️</span>Панель упр.</button>
+            <button class="btn purple" onclick="run('devmgmt')"><span class="icon">🖥️</span>Устройства</button>
+            <button class="btn purple" onclick="run('msconfig')"><span class="icon">⚙️</span>msconfig</button>
+            <button class="btn purple" onclick="run('regedit')"><span class="icon">📝</span>Редактор реестра</button>
+            <button class="btn purple" onclick="run('charmap')"><span class="icon">🔣</span>Символы</button>
+            <button class="btn purple" onclick="run('magnify')"><span class="icon">🔍</span>Лупа</button>
+            <button class="btn purple" onclick="run('osk')"><span class="icon">⌨️</span>Экран. клава</button>
+            <button class="btn purple" onclick="run('winver')"><span class="icon">ℹ️</span>Версия Windows</button>
+            <button class="btn purple" onclick="run('dxdiag')"><span class="icon">📊</span>dxdiag</button>
+            <button class="btn purple" onclick="run('diskmgmt')"><span class="icon">💾</span>Диски</button>
+            <button class="btn purple" onclick="run('eventvwr')"><span class="icon">📋</span>События</button>
+            <button class="btn purple" onclick="run('services')"><span class="icon">⚙️</span>Службы</button>
+            <button class="btn purple" onclick="run('perfmon')"><span class="icon">📊</span>Производит.</button>
+            <button class="btn purple" onclick="run('resmon')"><span class="icon">📊</span>Ресурсы</button>
+            <button class="btn purple" onclick="run('cleanmgr')"><span class="icon">🧹</span>Очистка</button>
+            <button class="btn purple" onclick="run('dfrag')"><span class="icon">🔄</span>Дефрагмент.</button>
+            <button class="btn purple" onclick="run('mdsched')"><span class="icon">🧠</span>Память</button>
+            <button class="btn purple" onclick="run('winupdate')"><span class="icon">🔄</span>Обновления</button>
+            <button class="btn purple" onclick="run('settings')"><span class="icon">⚙️</span>Параметры</button>
+            <button class="btn purple" onclick="run('camera')"><span class="icon">📷</span>Камера</button>
+            <button class="btn purple" onclick="run('store')"><span class="icon">🛒</span>Store</button>
+            <button class="btn purple" onclick="run('snip')"><span class="icon">✂️</span>Snip</button>
+            <button class="btn purple" onclick="runArg('explorer_path', prompt('Путь:', 'C:\\\\'))"><span class="icon">📂</span>Открыть путь</button>
+        </div>
+    </div>
+
+    <!-- ===== 4. САЙТЫ ===== -->
+    <div class="panel" id="tab-sites">
+        <div class="panel-title">🌐 Сайты <span class="count">25</span></div>
+        <div class="grid">
+            <button class="btn success" onclick="run('youtube')"><span class="icon">📺</span>YouTube</button>
+            <button class="btn success" onclick="run('google')"><span class="icon">🔍</span>Google</button>
+            <button class="btn success" onclick="run('vk')"><span class="icon">📱</span>VK</button>
+            <button class="btn success" onclick="run('github')"><span class="icon">🐙</span>GitHub</button>
+            <button class="btn success" onclick="run('twitch')"><span class="icon">🎮</span>Twitch</button>
+            <button class="btn success" onclick="run('discord')"><span class="icon">💬</span>Discord</button>
+            <button class="btn success" onclick="run('telegram')"><span class="icon">✈️</span>Telegram</button>
+            <button class="btn success" onclick="run('reddit')"><span class="icon">👽</span>Reddit</button>
+            <button class="btn success" onclick="run('twitter')"><span class="icon">🐦</span>Twitter</button>
+            <button class="btn success" onclick="run('instagram')"><span class="icon">📷</span>Instagram</button>
+            <button class="btn success" onclick="run('tiktok')"><span class="icon">🎵</span>TikTok</button>
+            <button class="btn success" onclick="run('chatgpt')"><span class="icon">🤖</span>ChatGPT</button>
+            <button class="btn success" onclick="run('wikipedia')"><span class="icon">📚</span>Wikipedia</button>
+            <button class="btn success" onclick="run('yandex')"><span class="icon">🔍</span>Яндекс</button>
+            <button class="btn success" onclick="run('mail')"><span class="icon">📧</span>Mail.ru</button>
+            <button class="btn success" onclick="run('ok')"><span class="icon">👥</span>OK.ru</button>
+            <button class="btn success" onclick="run('steam')"><span class="icon">🎮</span>Steam</button>
+            <button class="btn success" onclick="run('epic')"><span class="icon">🎮</span>Epic Games</button>
+            <button class="btn success" onclick="run('spotify')"><span class="icon">🎵</span>Spotify</button>
+            <button class="btn success" onclick="run('netflix')"><span class="icon">🎬</span>Netflix</button>
+            <button class="btn pink" onclick="run('rickroll')"><span class="icon">🎵</span>Rickroll</button>
+            <button class="btn pink" onclick="run('rickroll_5')"><span class="icon">🎵</span>Rickroll x5</button>
+            <button class="btn pink" onclick="run('rickroll_10')"><span class="icon">🎵</span>Rickroll x10</button>
+            <button class="btn pink" onclick="run('rickroll_20')"><span class="icon">🎵</span>Rickroll x20</button>
+            <button class="btn cyan" onclick="runArg('open_url', prompt('URL:'))"><span class="icon">🌐</span>Свой сайт</button>
+        </div>
+    </div>
+
+    <!-- ===== 5. ПРИКОЛЫ ===== -->
+    <div class="panel" id="tab-jokes">
+        <div class="panel-title">🎭 Приколы <span class="count">21</span></div>
+        <div class="grid">
+            <button class="btn danger" onclick="run('kill_explorer')"><span class="icon">💀</span>Убить explorer</button>
+            <button class="btn success" onclick="run('restore_explorer')"><span class="icon">🔄</span>Восст. explorer</button>
+            <button class="btn warning" onclick="run('max_volume')"><span class="icon">🔊</span>Макс. громкость</button>
+            <button class="btn warning" onclick="run('mute_volume')"><span class="icon">🔇</span>Mute</button>
+            <button class="btn warning" onclick="run('unmute_volume')"><span class="icon">🔊</span>Unmute</button>
+            <button class="btn warning" onclick="run('volume_up')"><span class="icon">🔊</span>Громкость +</button>
+            <button class="btn warning" onclick="run('volume_down')"><span class="icon">🔉</span>Громкость -</button>
+            <button class="btn pink" onclick="run('firefox_10')"><span class="icon">🦊</span>Firefox x10</button>
+            <button class="btn pink" onclick="run('chrome_10')"><span class="icon">🌐</span>Chrome x10</button>
+            <button class="btn pink" onclick="run('notepad_10')"><span class="icon">📝</span>Блокнот x10</button>
+            <button class="btn pink" onclick="run('calc_10')"><span class="icon">🧮</span>Калькулятор x10</button>
+            <button class="btn danger" onclick="run('notepad_100')"><span class="icon">💀</span>Блокнот x100</button>
+            <button class="btn danger" onclick="run('fake_bsod')"><span class="icon">💀</span>Фейк BSOD</button>
+            <button class="btn danger" onclick="run('fake_error')"><span class="icon">⚠️</span>Фейк ошибка</button>
+            <button class="btn danger" onclick="run('fake_warning')"><span class="icon">⚠️</span>Фейк вирус</button>
+            <button class="btn cyan" onclick="run('fake_info')"><span class="icon">ℹ️</span>Фейк инфо</button>
+            <button class="btn purple" onclick="run('flip_screen')"><span class="icon">🔄</span>Перевернуть экран</button>
+            <button class="btn purple" onclick="run('hide_taskbar')"><span class="icon">👻</span>Скрыть панель</button>
+            <button class="btn purple" onclick="run('show_taskbar')"><span class="icon">👻</span>Показать панель</button>
+            <button class="btn danger" onclick="run('disable_taskbar')"><span class="icon">💀</span>Отключить панель</button>
+            <button class="btn success" onclick="run('enable_taskbar')"><span class="icon">🔄</span>Включить панель</button>
+        </div>
+    </div>
+
+    <!-- ===== 6. СИСТЕМА ===== -->
+    <div class="panel" id="tab-system">
+        <div class="panel-title">🛠️ Система <span class="count">35</span></div>
+        <div class="grid">
+            <button class="btn cyan" onclick="run('status')"><span class="icon">📊</span>Статус</button>
+            <button class="btn cyan" onclick="run('cpu')"><span class="icon">⚡</span>CPU</button>
+            <button class="btn cyan" onclick="run('ram')"><span class="icon">🧠</span>RAM</button>
+            <button class="btn cyan" onclick="run('disk')"><span class="icon">💾</span>Диск</button>
+            <button class="btn cyan" onclick="run('battery')"><span class="icon">🔋</span>Батарея</button>
+            <button class="btn cyan" onclick="run('uptime')"><span class="icon">⏱️</span>Аптайм</button>
+            <button class="btn cyan" onclick="run('os')"><span class="icon">🖥️</span>ОС</button>
+            <button class="btn cyan" onclick="run('hostname')"><span class="icon">🖥️</span>Имя ПК</button>
+            <button class="btn cyan" onclick="run('username')"><span class="icon">👤</span>Юзер</button>
+            <button class="btn cyan" onclick="run('ip')"><span class="icon">🌐</span>IP</button>
+            <button class="btn cyan" onclick="run('mac')"><span class="icon">🌐</span>MAC</button>
+            <button class="btn warning" onclick="run('processes')"><span class="icon">📋</span>Процессы</button>
+            <button class="btn warning" onclick="runArg('kill_process', prompt('Имя процесса (например, notepad.exe):'))"><span class="icon">💀</span>Убить процесс</button>
+            <button class="btn warning" onclick="runArg('start_process', prompt('Программа (например, notepad):'))"><span class="icon">▶️</span>Запуск процесса</button>
+            <button class="btn cyan" onclick="run('systeminfo')"><span class="icon">📊</span>systeminfo</button>
+            <button class="btn cyan" onclick="run('ipconfig')"><span class="icon">🌐</span>ipconfig</button>
+            <button class="btn cyan" onclick="run('ping')"><span class="icon">📡</span>Ping Google</button>
+            <button class="btn warning" onclick="run('flush_dns')"><span class="icon">🔄</span>Flush DNS</button>
+            <button class="btn cyan" onclick="run('netstat')"><span class="icon">📊</span>Netstat</button>
+            <button class="btn cyan" onclick="run('arp')"><span class="icon">📋</span>ARP</button>
+            <button class="btn cyan" onclick="run('route')"><span class="icon">🗺️</span>Route</button>
+            <button class="btn cyan" onclick="run('wifi')"><span class="icon">📶</span>Wi-Fi сети</button>
+            <button class="btn success" onclick="run('add_startup')"><span class="icon">🚀</span>В автозагрузку</button>
+            <button class="btn danger" onclick="run('remove_startup')"><span class="icon">🗑️</span>Из автозагрузки</button>
+            <button class="btn warning" onclick="run('clean_temp')"><span class="icon">🧹</span>Очистка Temp</button>
+            <button class="btn warning" onclick="run('clean_wintemp')"><span class="icon">🧹</span>Очистка WinTemp</button>
+            <button class="btn warning" onclick="run('empty_recycle')"><span class="icon">🗑️</span>Очистка корзины</button>
+            <button class="btn cyan" onclick="run('open_firewall')"><span class="icon">🛡️</span>Брандмауэр</button>
+            <button class="btn danger" onclick="run('disable_firewall')"><span class="icon">🔓</span>Откл. брандмауэр</button>
+            <button class="btn success" onclick="run('enable_firewall')"><span class="icon">🔒</span>Вкл. брандмауэр</button>
+            <button class="btn cyan" onclick="run('installed_programs')"><span class="icon">📦</span>Программы</button>
+            <button class="btn cyan" onclick="run('disk_usage')"><span class="icon">💾</span>Место на диске</button>
+            <button class="btn cyan" onclick="run('time')"><span class="icon">🕐</span>Время</button>
+            <button class="btn cyan" onclick="run('date')"><span class="icon">📅</span>Дата</button>
+            <button class="btn cyan" onclick="run('datetime')"><span class="icon">📅</span>Дата+Время</button>
+        </div>
+    </div>
+
+    <!-- ===== 7. ФАЙЛЫ ===== -->
+    <div class="panel" id="tab-files">
+        <div class="panel-title">📂 Файлы <span class="count">25</span></div>
+        <div class="grid">
+            <button class="btn purple" onclick="runArg('list_files', prompt('Путь:', '.'))"><span class="icon">📁</span>Список файлов</button>
+            <button class="btn purple" onclick="runArg('create_file', prompt('Имя файла:'), prompt('Содержимое:', ''))"><span class="icon">📝</span>Создать файл</button>
+            <button class="btn danger" onclick="runArg('delete_file', prompt('Путь к файлу:'))"><span class="icon">🗑️</span>Удалить файл</button>
+            <button class="btn warning" onclick="runArg('copy_file', prompt('Откуда:'), prompt('Куда:'))"><span class="icon">📋</span>Копировать</button>
+            <button class="btn warning" onclick="runArg('move_file', prompt('Откуда:'), prompt('Куда:'))"><span class="icon">➡️</span>Переместить</button>
+            <button class="btn warning" onclick="runArg('rename_file', prompt('Старое имя:'), prompt('Новое имя:'))"><span class="icon">✏️</span>Переименовать</button>
+            <button class="btn success" onclick="runArg('create_dir', prompt('Путь папки:'))"><span class="icon">📁</span>Создать папку</button>
+            <button class="btn danger" onclick="runArg('delete_dir', prompt('Путь папки:'))"><span class="icon">🗑️</span>Удалить папку</button>
+            <button class="btn success" onclick="runArg('download_file', prompt('URL файла:'))"><span class="icon">⬇️</span>Скачать файл</button>
+            <button class="btn cyan" onclick="runArg('file_info', prompt('Путь к файлу:'))"><span class="icon">ℹ️</span>Инфо о файле</button>
+            <button class="btn cyan" onclick="runArg('get_file_size', prompt('Путь к файлу:'))"><span class="icon">📏</span>Размер файла</button>
+            <button class="btn purple" onclick="runArg('open_file', prompt('Путь к файлу:'))"><span class="icon">▶️</span>Открыть файл</button>
+            <button class="btn purple" onclick="runArg('open_folder', prompt('Путь к папке:', '.'))"><span class="icon">📂</span>Открыть папку</button>
+            <button class="btn cyan" onclick="runArg('search_files', prompt('Что искать:'), prompt('Где искать:', 'C:\\\\'))"><span class="icon">🔍</span>Поиск файлов</button>
+            <button class="btn cyan" onclick="runArg('read_file', prompt('Путь к файлу:'))"><span class="icon">📖</span>Прочитать файл</button>
+            <button class="btn warning" onclick="runArg('write_file', prompt('Путь:'), prompt('Содержимое:'))"><span class="icon">✍️</span>Записать в файл</button>
+            <button class="btn warning" onclick="runArg('append_file', prompt('Путь:'), prompt('Добавить:'))"><span class="icon">➕</span>Добавить в файл</button>
+            <button class="btn success" onclick="runArg('zip_folder', prompt('Папка:'), prompt('Имя архива:'))"><span class="icon">🗜️</span>Создать ZIP</button>
+            <button class="btn success" onclick="runArg('unzip_file', prompt('Архив:'), prompt('Куда распаковать:'))"><span class="icon">📦</span>Распаковать ZIP</button>
+            <button class="btn cyan" onclick="runArg('hash_file', prompt('Путь к файлу:'))"><span class="icon">🔐</span>MD5 хэш</button>
+            <button class="btn cyan" onclick="runArg('file_exists', prompt('Путь:'))"><span class="icon">❓</span>Файл есть?</button>
+            <button class="btn cyan" onclick="runArg('dir_exists', prompt('Путь:'))"><span class="icon">❓</span>Папка есть?</button>
+            <button class="btn purple" onclick="run('current_dir')"><span class="icon">📁</span>Текущая папка</button>
+            <button class="btn warning" onclick="runArg('change_dir', prompt('Путь:'))"><span class="icon">📁</span>Сменить папку</button>
+            <button class="btn cyan" onclick="runArg('list_files', prompt('Путь:', 'C:\\\\'))"><span class="icon">📁</span>Файлы в C:\\</button>
+        </div>
+    </div>
+
+    <!-- ===== 8. МЫШЬ И КЛАВИАТУРА ===== -->
+    <div class="panel" id="tab-mouse">
+        <div class="panel-title">🖱️ Мышь и клавиатура <span class="count">20</span></div>
+        <div class="grid">
+            <button class="btn purple" onclick="runArg('mouse_move', prompt('X:'), prompt('Y:'))"><span class="icon">🖱️</span>Мышь в X,Y</button>
+            <button class="btn purple" onclick="run('mouse_click')"><span class="icon">🖱️</span>Клик</button>
+            <button class="btn purple" onclick="run('mouse_right_click')"><span class="icon">🖱️</span>ПКМ</button>
+            <button class="btn purple" onclick="run('mouse_double_click')"><span class="icon">🖱️</span>Двойной клик</button>
+            <button class="btn purple" onclick="runArg('mouse_scroll', prompt('Скролл (например, 3):', '3'))"><span class="icon">🖱️</span>Скролл</button>
+            <button class="btn cyan" onclick="runArg('key_press', prompt('Клавиша (например, enter):'))"><span class="icon">⌨️</span>Нажать клавишу</button>
+            <button class="btn cyan" onclick="runArg('type_text', prompt('Текст:'))"><span class="icon">⌨️</span>Напечатать текст</button>
+            <button class="btn success" onclick="run('press_enter')"><span class="icon">⌨️</span>Enter</button>
+            <button class="btn success" onclick="run('press_escape')"><span class="icon">⌨️</span>Escape</button>
+            <button class="btn success" onclick="run('press_tab')"><span class="icon">⌨️</span>Tab</button>
+            <button class="btn success" onclick="run('press_space')"><span class="icon">⌨️</span>Space</button>
+            <button class="btn success" onclick="run('press_backspace')"><span class="icon">⌨️</span>Backspace</button>
+            <button class="btn success" onclick="run('press_delete')"><span class="icon">⌨️</span>Delete</button>
+            <button class="btn success" onclick="run('press_win')"><span class="icon">⌨️</span>Win</button>
+            <button class="btn danger" onclick="run('press_alt_f4')"><span class="icon">⌨️</span>Alt+F4</button>
+            <button class="btn purple" onclick="run('press_ctrl_c')"><span class="icon">⌨️</span>Ctrl+C</button>
+            <button class="btn purple" onclick="run('press_ctrl_v')"><span class="icon">⌨️</span>Ctrl+V</button>
+            <button class="btn purple" onclick="run('press_ctrl_a')"><span class="icon">⌨️</span>Ctrl+A</button>
+            <button class="btn purple" onclick="run('press_ctrl_s')"><span class="icon">⌨️</span>Ctrl+S</button>
+            <button class="btn warning" onclick="runArg('hotkey', prompt('Комбинация (например, ctrl,alt,delete):'))"><span class="icon">⌨️</span>Своя комбинация</button>
+        </div>
+    </div>
+
+    <!-- ===== 9. ОБОИ ===== -->
+    <div class="panel" id="tab-wallpaper">
+        <div class="panel-title">🖼️ Обои <span class="count">6</span></div>
+        <div class="cmd-row">
+            <input type="text" id="wallpaperUrl" placeholder="URL картинки...">
+            <button onclick="setWallpaperUrl()">Установить</button>
+        </div>
+        <div class="cmd-row">
+            <input type="file" id="wallpaperFile" accept="image/*">
+            <button onclick="uploadWallpaper()">Загрузить фото</button>
+        </div>
+        <div class="grid">
+            <button class="btn success" onclick="run('set_wallpaper_random')"><span class="icon">🎲</span>Случайные</button>
+            <button class="btn warning" onclick="run('reset_wallpaper')"><span class="icon">🔄</span>Сбросить</button>
+            <button class="btn cyan" onclick="run('get_wallpaper')"><span class="icon">ℹ️</span>Текущие обои</button>
+        </div>
+    </div>
+
+    <!-- ===== 10. РЕЕСТР ===== -->
+    <div class="panel" id="tab-registry">
+        <div class="panel-title">📝 Реестр <span class="count">10</span></div>
+        <div class="grid">
+            <button class="btn cyan" onclick="runArg('reg_read', prompt('Путь в реестре:'), prompt('Имя параметра:'))"><span class="icon">📖</span>Читать</button>
+            <button class="btn warning" onclick="runArg('reg_write', prompt('Путь:'), prompt('Имя:'), prompt('Значение:'))"><span class="icon">✍️</span>Записать</button>
+            <button class="btn danger" onclick="runArg('reg_delete', prompt('Путь:'), prompt('Имя:'))"><span class="icon">🗑️</span>Удалить</button>
+            <button class="btn cyan" onclick="runArg('reg_list', prompt('Путь:'))"><span class="icon">📋</span>Список</button>
+            <button class="btn success" onclick="runArg('reg_create_key', prompt('Путь:'))"><span class="icon">➕</span>Создать ключ</button>
+            <button class="btn danger" onclick="runArg('reg_delete_key', prompt('Путь:'))"><span class="icon">🗑️</span>Удалить ключ</button>
+            <button class="btn danger" onclick="run('reg_disable_taskmgr')"><span class="icon">🔒</span>Откл. диспетчер</button>
+            <button class="btn success" onclick="run('reg_enable_taskmgr')"><span class="icon">🔓</span>Вкл. диспетчер</button>
+            <button class="btn danger" onclick="run('reg_disable_cmd')"><span class="icon">🔒</span>Откл. CMD</button>
+            <button class="btn success" onclick="run('reg_enable_cmd')"><span class="icon">🔓</span>Вкл. CMD</button>
+        </div>
+    </div>
+
+    <!-- ===== 11. СЛУЖБЫ ===== -->
+    <div class="panel" id="tab-services">
+        <div class="panel-title">⚙️ Службы <span class="count">10</span></div>
+        <div class="grid">
+            <button class="btn cyan" onclick="run('list_services')"><span class="icon">📋</span>Список служб</button>
+            <button class="btn success" onclick="runArg('start_service', prompt('Имя службы:'))"><span class="icon">▶️</span>Запустить</button>
+            <button class="btn danger" onclick="runArg('stop_service', prompt('Имя службы:'))"><span class="icon">⛔</span>Остановить</button>
+            <button class="btn warning" onclick="runArg('restart_service', prompt('Имя службы:'))"><span class="icon">🔄</span>Перезапустить</button>
+            <button class="btn cyan" onclick="runArg('service_status', prompt('Имя службы:'))"><span class="icon">ℹ️</span>Статус</button>
+            <button class="btn danger" onclick="runArg('disable_service', prompt('Имя службы:'))"><span class="icon">🔒</span>Отключить</button>
+            <button class="btn success" onclick="runArg('enable_service', prompt('Имя службы:'))"><span class="icon">🔓</span>Включить</button>
+            <button class="btn cyan" onclick="run('list_started_services')"><span class="icon">📋</span>Запущенные</button>
+            <button class="btn purple" onclick="run('open_services_msc')"><span class="icon">⚙️</span>Открыть services.msc</button>
+            <button class="btn cyan" onclick="runArg('service_info', prompt('Имя службы:'))"><span class="icon">ℹ️</span>Инфо службы</button>
+        </div>
+    </div>
+
+    <!-- ===== 12. ПОЛЬЗОВАТЕЛИ ===== -->
+    <div class="panel" id="tab-users">
+        <div class="panel-title">👤 Пользователи <span class="count">10</span></div>
+        <div class="grid">
+            <button class="btn cyan" onclick="run('list_users')"><span class="icon">📋</span>Список юзеров</button>
+            <button class="btn success" onclick="runArg('add_user', prompt('Имя:'), prompt('Пароль:'))"><span class="icon">➕</span>Добавить</button>
+            <button class="btn danger" onclick="runArg('delete_user', prompt('Имя:'))"><span class="icon">🗑️</span>Удалить</button>
+            <button class="btn cyan" onclick="runArg('user_info', prompt('Имя:'))"><span class="icon">ℹ️</span>Инфо</button>
+            <button class="btn warning" onclick="runArg('change_password', prompt('Имя:'), prompt('Новый пароль:'))"><span class="icon">🔑</span>Сменить пароль</button>
+            <button class="btn success" onclick="runArg('add_to_admin', prompt('Имя:'))"><span class="icon">👑</span>В админы</button>
+            <button class="btn danger" onclick="runArg('remove_from_admin', prompt('Имя:'))"><span class="icon">👤</span>Из админов</button>
+            <button class="btn cyan" onclick="run('list_admins')"><span class="icon">👑</span>Список админов</button>
+            <button class="btn danger" onclick="runArg('disable_user', prompt('Имя:'))"><span class="icon">🔒</span>Отключить</button>
+            <button class="btn success" onclick="runArg('enable_user', prompt('Имя:'))"><span class="icon">🔓</span>Включить</button>
+        </div>
+    </div>
+
+    <!-- ===== 13. СЕТЬ ===== -->
+    <div class="panel" id="tab-network">
+        <div class="panel-title">🌍 Сеть <span class="count">10</span></div>
+        <div class="grid">
+            <button class="btn cyan" onclick="runArg('ping_host', prompt('Хост (например, google.com):'))"><span class="icon">📡</span>Ping хост</button>
+            <button class="btn cyan" onclick="runArg('tracert_host', prompt('Хост:'))"><span class="icon">🗺️</span>Tracert</button>
+            <button class="btn cyan" onclick="runArg('nslookup_host', prompt('Хост:'))"><span class="icon">🔍</span>NSLookup</button>
+            <button class="btn cyan" onclick="run('netstat_all')"><span class="icon">📊</span>Netstat -an</button>
+            <button class="btn success" onclick="run('public_ip')"><span class="icon">🌐</span>Публичный IP</button>
+            <button class="btn success" onclick="run('local_ip')"><span class="icon">🌐</span>Локальный IP</button>
+            <button class="btn warning" onclick="runArg('port_scan', prompt('Хост:'), prompt('Порт:'))"><span class="icon">🔍</span>Скан порта</button>
+            <button class="btn cyan" onclick="run('open_ports')"><span class="icon">📋</span>Открытые порты</button>
+            <button class="btn cyan" onclick="run('dns_servers')"><span class="icon">🌐</span>DNS серверы</button>
+            <button class="btn danger" onclick="run('reset_network')"><span class="icon">🔄</span>Сброс сети</button>
+        </div>
+    </div>
+
+    <!-- ===== 14. УВЕДОМЛЕНИЯ ===== -->
+    <div class="panel" id="tab-notify">
+        <div class="panel-title">💬 Уведомления <span class="count">5</span></div>
+        <div class="cmd-row">
+            <input type="text" id="msgText" placeholder="Текст сообщения...">
+            <button onclick="sendMessage()">Отправить</button>
+        </div>
+        <div class="grid">
+            <button class="btn success" onclick="run('beep')"><span class="icon">🔊</span>Бип</button>
+            <button class="btn warning" onclick="run('beep_long')"><span class="icon">🔊</span>Длинный бип</button>
+            <button class="btn purple" onclick="run('play_sound')"><span class="icon">🔊</span>Системный звук</button>
+        </div>
+    </div>
+
+    <!-- ===== 15. СВОЯ КОМАНДА ===== -->
+    <div class="panel" id="tab-custom">
+        <div class="panel-title">⌨️ Своя команда</div>
+        <div class="cmd-row">
+            <input type="text" id="customCmd" placeholder="Имя команды (например, shutdown)" spellcheck="false">
+            <input type="text" id="customArgs" placeholder="Аргументы (через запятую)" spellcheck="false">
+            <button onclick="runCustom()">▶ Выполнить</button>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:8px;">
+            💡 Список всех команд: <a href="/commands" target="_blank" style="color:#00ff88;">/commands</a>
+        </div>
+        <div class="log" id="log">
+            <span class="info">🚀 FSOCIETY PC CONTROL v2.0</span>
+            <span class="info">💡 250+ команд доступно</span>
+            <span class="info">📋 Список: /commands</span>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ===== МАТРИЦА =====
+    const canvas = document.getElementById('matrixCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const cols = Math.floor(canvas.width / 16);
+    const drops = Array(cols).fill(1);
+    const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+
+    function drawMatrix() {
+        ctx.fillStyle = 'rgba(10, 10, 15, 0.05)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = '16px monospace';
+        for (let i = 0; i < cols; i++) {
+            const char = chars[Math.floor(Math.random() * chars.length)];
+            ctx.fillStyle = `rgba(0, 255, 136, ${0.1 + Math.random() * 0.3})`;
+            ctx.fillText(char, i * 16, drops[i] * 16);
+            if (drops[i] * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+    setInterval(drawMatrix, 50);
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    });
+
+    // ===== СЧЁТЧИК КОМАНД =====
+    let cmdCounter = 0;
+
+    // ===== ВКЛАДКИ =====
+    function showTab(name, btn) {
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('tab-' + name).classList.add('active');
+        btn.classList.add('active');
+    }
+
+    // ===== ЗАПУСК КОМАНДЫ =====
+    async function run(cmd, args = '') {
+        cmdCounter++;
+        document.getElementById('cmdCount').textContent = cmdCounter;
+        log(`⚡ ${cmd}`, 'warn');
+
+        try {
+            const url = `/run?cmd=${encodeURIComponent(cmd)}&args=${encodeURIComponent(args)}`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.ok) {
+                log(`✅ ${data.result}`, 'ok');
+            } else {
+                log(`❌ ${data.error}`, 'err');
+            }
+        } catch (e) {
+            log(`❌ Ошибка сети: ${e}`, 'err');
+        }
+    }
+
+    // ===== ЗАПУСК С АРГУМЕНТАМИ =====
+    function runArg(cmd, ...args) {
+        const argStr = args.filter(a => a !== null && a !== undefined).join(',');
+        run(cmd, argStr);
+    }
+
+    // ===== СВОЯ КОМАНДА =====
+    function runCustom() {
+        const cmd = document.getElementById('customCmd').value.trim();
+        const args = document.getElementById('customArgs').value.trim();
+        if (!cmd) return;
+        run(cmd, args);
+        document.getElementById('customCmd').value = '';
+        document.getElementById('customArgs').value = '';
+    }
+
+    // ===== УВЕДОМЛЕНИЕ =====
+    function sendMessage() {
+        const text = document.getElementById('msgText').value.trim();
+        if (!text) return;
+        runArg('show_message', text);
+        document.getElementById('msgText').value = '';
+    }
+
+    // ===== ОБОИ ПО URL =====
+    function setWallpaperUrl() {
+        const url = document.getElementById('wallpaperUrl').value.trim();
+        if (!url) return;
+        runArg('set_wallpaper_url', url);
+        document.getElementById('wallpaperUrl').value = '';
+    }
+
+    // ===== ЗАГРУЗКА ОБОЕВ =====
+    async function uploadWallpaper() {
+        const fileInput = document.getElementById('wallpaperFile');
+        if (!fileInput.files.length) return;
+        const file = fileInput.files[0];
+        log(`📤 Загрузка обоев: ${file.name}`, 'info');
+
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const base64 = e.target.result.split(',')[1];
+            try {
+                const response = await fetch('/upload_wallpaper', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({data: base64})
+                });
+                const data = await response.json();
+                if (data.ok) log(`✅ ${data.result}`, 'ok');
+                else log(`❌ ${data.error}`, 'err');
+            } catch (err) {
+                log(`❌ Ошибка: ${err}`, 'err');
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ===== ЛОГ =====
+    function log(msg, type = '') {
+        const logEl = document.getElementById('log');
+        const span = document.createElement('span');
+        span.className = type;
+        span.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.appendChild(span);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // ===== ПРОВЕРКА СВЯЗИ =====
+    async function checkServer() {
+        try {
+            const response = await fetch('/status');
+            const data = await response.json();
+            if (data.ok) {
+                document.getElementById('statusText').textContent = 'Подключено';
+            } else {
+                document.getElementById('statusText').textContent = 'Ошибка';
+            }
+        } catch (e) {
+            document.getElementById('statusText').textContent = 'Нет связи';
+        }
+    }
+    checkServer();
+    setInterval(checkServer, 10000);
+
+    // ===== ENTER В ПОЛЯХ =====
+    document.getElementById('customCmd').addEventListener('keydown', e => {
+        if (e.key === 'Enter') runCustom();
+    });
+    document.getElementById('customArgs').addEventListener('keydown', e => {
+        if (e.key === 'Enter') runCustom();
+    });
+    document.getElementById('msgText').addEventListener('keydown', e => {
+        if (e.key === 'Enter') sendMessage();
+    });
+    document.getElementById('wallpaperUrl').addEventListener('keydown', e => {
+        if (e.key === 'Enter') setWallpaperUrl();
+    });
+
+    log('🚀 FSOCIETY PC CONTROL v2.0 загружен', 'info');
+    log('💡 250+ команд в 15 категориях', 'info');
+</script>
+
+</body>
+</html>

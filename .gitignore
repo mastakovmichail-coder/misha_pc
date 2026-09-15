@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+users.json
+history.json
+chat.json
+avatars/
+*.session
