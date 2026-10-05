@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-vk_bot.pyw — VK-бот для FSOCIETY PC CONTROL
-Использует commands.py + auth.py
-Требует авторизацию через никнейм + Gmail код
+vk_bot.pyw — VK-бот с камерой, детектором движения и скачиванием видео
+Один файл. Камера в фоне. Не блокирует бота.
 """
 
 import vk_api
@@ -16,10 +15,19 @@ import random
 import requests
 import socket
 import platform
+import threading
+import glob
+from datetime import datetime
 from PIL import ImageGrab, Image
 from io import BytesIO
 
-# ===== ИМПОРТЫ =====
+# ===== ИМПОРТЫ ДЛЯ КАМЕРЫ =====
+import cv2
+
+# ===== ИМПОРТЫ ДЛЯ СКАЧИВАНИЯ =====
+import yt_dlp
+
+# ===== ИМПОРТЫ НАШИХ МОДУЛЕЙ =====
 try:
     import commands
     import auth
@@ -35,12 +43,32 @@ except ImportError as e:
 TOKEN = "vk1.a.517XnJRVi85ZZ6pBITZA4vBihrMBQ7x43cYW1uGq9joRm8532YibJj0VfrQ_NPBlQ_xb4x8fRUMwbILhKItvPWEiTc1eNLBHKUHdqO2lGCsHi1rQeUw1gsjqcq9v8VRRyUMfBavAsRGCdvZi6i6TyA2Fdia8Ab5_m0BvLdxlVQhu9cKqEyqHsraRiqt-wUAhi3fvALdkEnQheB4fVMpM2g"
 GROUP_ID = 241449788
 
-# ===== СОСТОЯНИЯ ПОЛЬЗОВАТЕЛЕЙ =====
-# {vk_id: {"state": "waiting_nickname/waiting_code", "nickname": "..."}}
-user_states = {}
+# ===== БЕЛЫЙ СПИСОК =====
+ALLOWED_USERS = [
+    881029017,        # ты
+    7096810,
+    1108741700,
+    878539016,
+]
 
 # ============================================================
-# АВТОРИЗАЦИЯ
+# НАСТРОЙКИ КАМЕРЫ
+# ============================================================
+CAMERA_URL = "http://192.168.0.180:8080/video"   # новый IP
+MOTION_THRESHOLD = 5000
+MOTION_TIME = 10
+IDLE_TIME = 300
+CHECK_INTERVAL = 1
+NOTIFY_USER = 881029017
+
+# ============================================================
+# СОСТОЯНИЯ
+# ============================================================
+user_states = {}
+camera_lock = threading.Lock()
+
+# ============================================================
+# АВТОРИЗАЦИЯ VK
 # ============================================================
 try:
     vk_session = vk_api.VkApi(token=TOKEN)
@@ -52,11 +80,9 @@ except Exception as e:
     sys.exit(1)
 
 # ============================================================
-# ФУНКЦИИ
+# ФУНКЦИИ ОТПРАВКИ
 # ============================================================
-
 def send_message(user_id, text, keyboard=None):
-    """Отправляет сообщение"""
     try:
         vk.messages.send(
             user_id=user_id,
@@ -69,7 +95,6 @@ def send_message(user_id, text, keyboard=None):
 
 
 def send_photo(user_id, photo_path):
-    """Отправляет фото"""
     try:
         upload = vk_api.upload.VkUpload(vk_session)
         photo = upload.photo_messages(photo_path)[0]
@@ -79,13 +104,269 @@ def send_photo(user_id, photo_path):
             random_id=random.randint(1, 999999)
         )
     except Exception as e:
-        send_message(user_id, f"❌ Ошибка фото: {e}")
+        print(f"Ошибка фото: {e}")
+
+
+def send_video(user_id, video_path):
+    """Отправляет видео в VK как документ (играется в чате)"""
+    try:
+        if not os.path.exists(video_path):
+            send_message(user_id, f"❌ Файл не найден: {video_path}")
+            return
+
+        size_mb = os.path.getsize(video_path) / (1024 * 1024)
+        send_message(user_id, f"📤 Отправляю ({size_mb:.1f} МБ)...")
+
+        # 1. Получаем сервер для загрузки документов
+        upload_server = vk.docs.getMessagesUploadServer(
+            type="doc",
+            peer_id=user_id
+        )
+        upload_url = upload_server["upload_url"]
+
+        # 2. Загружаем файл
+        with open(video_path, "rb") as f:
+            response = requests.post(
+                upload_url,
+                files={"file": f}
+            )
+        result = response.json()
+
+        # 3. Сохраняем документ
+        saved = vk.docs.save(
+            file=result["file"],
+            title=os.path.basename(video_path)
+        )
+
+        # 4. Отправляем
+        doc = saved["doc"]
+        attachment = f"doc{doc['owner_id']}_{doc['id']}"
+        vk.messages.send(
+            user_id=user_id,
+            attachment=attachment,
+            random_id=random.randint(1, 999999)
+        )
+        send_message(user_id, "✅ Видео отправлено!")
+    except Exception as e:
+        send_message(user_id, f"❌ Ошибка отправки видео:\n{e}")
+        print(f"Ошибка видео: {e}")
+
+
+# ============================================================
+# ЗАХВАТ КАДРА
+# ============================================================
+def capture_frame():
+    """Быстрый захват кадра с камеры"""
+    with camera_lock:
+        try:
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000"
+            cap = cv2.VideoCapture(CAMERA_URL, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+
+            if not cap.isOpened():
+                cap.release()
+                return None
+
+            for _ in range(3):
+                cap.read()
+                time.sleep(0.2)
+
+            ret, frame = cap.read()
+            cap.release()
+
+            if ret and frame is not None:
+                return frame
+        except Exception as e:
+            print(f"Ошибка кадра: {e}")
+        return None
+
+
+# ============================================================
+# СКАЧИВАНИЕ ВИДЕО
+# ============================================================
+def download_media(url, user_id):
+    """Скачивает видео по ссылке и отправляет в VK"""
+    # Папка загрузок пользователя + vk_downloads
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads", "vk_downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    # Очищаем папку от старых файлов
+    for f in os.listdir(downloads_dir):
+        try:
+            os.remove(os.path.join(downloads_dir, f))
+        except:
+            pass
+
+    ydl_opts = {
+        "outtmpl": os.path.join(downloads_dir, "%(title)s.%(ext)s"),
+        "format": "bestvideo*+bestaudio/best",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "max_filesize": 200 * 1024 * 1024,
+        # ===== ФИКСЫ ОБРЫВА =====
+        "retries": 10,
+        "fragment_retries": 10,
+        "skip_unavailable_fragments": True,
+        "file_access_retries": 10,
+        "extractor_retries": 10,
+        "socket_timeout": 30,
+    }
+
+    try:
+        send_message(user_id, "⏳ Скачиваю видео...")
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+
+        # Ищем файл
+        if os.path.exists(filename):
+            pass
+        else:
+            base, _ = os.path.splitext(filename)
+            found = None
+            for ext in [".mp4", ".mkv", ".webm", ".m4a", ".mov", ".avi"]:
+                if os.path.exists(base + ext):
+                    found = base + ext
+                    break
+
+            if not found:
+                all_files = glob.glob(os.path.join(downloads_dir, "*"))
+                if all_files:
+                    found = max(all_files, key=os.path.getmtime)
+
+            if not found:
+                send_message(user_id, "❌ Файл не найден после скачивания")
+                return
+
+            filename = found
+
+        # Отправляем видео
+        send_video(user_id, filename)
+        send_message(user_id, f"✅ Готово: {info.get('title', 'видео')}")
+
+        # Удаляем файл
+        if os.path.exists(filename):
+            os.remove(filename)
+
+    except Exception as e:
+        send_message(user_id, f"❌ Ошибка: {e}")
+
+
+# ============================================================
+# ДЕТЕКТОР ДВИЖЕНИЯ (В ФОНЕ)
+# ============================================================
+def camera_detector():
+    """Работает в фоне. Не блокирует бота."""
+    while True:
+        try:
+            print("🎥 Подключение к камере...")
+
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                "timeout;5000|analyzeduration;1000000|probesize;1000000"
+            )
+
+            cap = cv2.VideoCapture(CAMERA_URL, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+
+            if not cap.isOpened():
+                print("❌ Камера не отвечает. Жду 30 сек...")
+                cap.release()
+                time.sleep(30)
+                continue
+
+            send_message(NOTIFY_USER, "🎥 Камера подключена. Слежу за движением...")
+            print("✅ Камера подключена")
+
+            _, prev = cap.read()
+            if prev is None:
+                cap.release()
+                time.sleep(10)
+                continue
+
+            prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+            prev_gray = cv2.GaussianBlur(prev_gray, (21, 21), 0)
+
+            motion_start = None
+            last_motion = time.time()
+            is_playing = False
+
+            while True:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    print("⚠️ Потеря кадра. Переподключение...")
+                    cap.release()
+                    time.sleep(10)
+                    break
+
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+                diff = cv2.absdiff(prev_gray, gray)
+                thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)[1]
+                thresh = cv2.dilate(thresh, None, iterations=2)
+
+                contours, _ = cv2.findContours(
+                    thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+
+                motion = False
+                for c in contours:
+                    if cv2.contourArea(c) > MOTION_THRESHOLD:
+                        motion = True
+                        break
+
+                now = time.time()
+
+                if motion:
+                    last_motion = now
+                    if motion_start is None:
+                        motion_start = now
+
+                    if not is_playing and (now - motion_start) >= MOTION_TIME:
+                        is_playing = True
+                        filename = f"play_{int(now)}.jpg"
+                        cv2.imwrite(filename, frame)
+
+                        send_message(
+                            NOTIFY_USER,
+                            f"🎮 МАРК СЕЛ ИГРАТЬ!\n"
+                            f"🕐 {datetime.now().strftime('%H:%M:%S')}\n"
+                            f"📅 {datetime.now().strftime('%d.%m.%Y')}"
+                        )
+                        send_photo(NOTIFY_USER, filename)
+
+                        if os.path.exists(filename):
+                            os.remove(filename)
+
+                        print(f"🎮 Начал играть: {datetime.now().strftime('%H:%M:%S')}")
+                else:
+                    motion_start = None
+
+                    if is_playing and (now - last_motion) >= IDLE_TIME:
+                        is_playing = False
+                        send_message(
+                            NOTIFY_USER,
+                            f"🛑 Марк закончил играть\n"
+                            f"🕐 {datetime.now().strftime('%H:%M:%S')}"
+                        )
+                        print(f"🛑 Закончил: {datetime.now().strftime('%H:%M:%S')}")
+
+                prev_gray = gray
+                time.sleep(CHECK_INTERVAL)
+
+        except Exception as e:
+            print(f"❌ Ошибка камеры: {e}")
+            time.sleep(30)
 
 
 # ============================================================
 # КЛАВИАТУРЫ
 # ============================================================
-
 def kb_main():
     kb = VkKeyboard(one_time=False)
     kb.add_button("📸 Скриншот", color=VkKeyboardColor.PRIMARY)
@@ -103,7 +384,9 @@ def kb_main():
     kb.add_button("➡️ Система", color=VkKeyboardColor.PRIMARY)
     kb.add_button("➡️ Сайты", color=VkKeyboardColor.PRIMARY)
     kb.add_line()
-    kb.add_button("👤 Профиль", color=VkKeyboardColor.SECONDARY)
+    kb.add_button("🎥 Камера", color=VkKeyboardColor.POSITIVE)
+    kb.add_button("📥 Скачать видео", color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
     kb.add_button("❓ Помощь", color=VkKeyboardColor.SECONDARY)
     return kb
 
@@ -119,87 +402,6 @@ def kb_programs():
     kb.add_button("📂 Проводник", color=VkKeyboardColor.SECONDARY)
     kb.add_button("📊 Диспетчер задач", color=VkKeyboardColor.SECONDARY)
     kb.add_line()
-    kb.add_button("🎨 Paint", color=VkKeyboardColor.SECONDARY)
-    kb.add_button("✂️ Ножницы", color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button("⚙️ Панель управления", color=VkKeyboardColor.SECONDARY)
-    kb.add_button("🖥️ Устройства", color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button("⬅️ Назад", color=VkKeyboardColor.NEGATIVE)
-    return kb
-
-
-def kb_jokes():
-    kb = VkKeyboard(one_time=False)
-    kb.add_button("🎵 Рикролл", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("🎵 Рикролл x5", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🎵 Рикролл x10", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("🦊 Firefox x10", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🌐 Chrome x10", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("📝 Блокнот x10", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("💀 Убить explorer", color=VkKeyboardColor.NEGATIVE)
-    kb.add_button("🔄 Восст. explorer", color=VkKeyboardColor.POSITIVE)
-    kb.add_line()
-    kb.add_button("🔊 Макс. громкость", color=VkKeyboardColor.SECONDARY)
-    kb.add_button("🔇 Отключить звук", color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button("⬅️ Назад", color=VkKeyboardColor.NEGATIVE)
-    return kb
-
-
-def kb_system():
-    kb = VkKeyboard(one_time=False)
-    kb.add_button("📊 Статус", color=VkKeyboardColor.POSITIVE)
-    kb.add_button("⚡ CPU", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🧠 RAM", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("💾 Диск", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🔋 Батарея", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("⏱️ Аптайм", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("📋 Процессы", color=VkKeyboardColor.SECONDARY)
-    kb.add_button("🌐 IP", color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button("📡 Ping Google", color=VkKeyboardColor.SECONDARY)
-    kb.add_button("🔄 Flush DNS", color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button("🧹 Очистка Temp", color=VkKeyboardColor.WARNING)
-    kb.add_button("🗑️ Очистка корзины", color=VkKeyboardColor.WARNING)
-    kb.add_line()
-    kb.add_button("⬅️ Назад", color=VkKeyboardColor.NEGATIVE)
-    return kb
-
-
-def kb_sites():
-    kb = VkKeyboard(one_time=False)
-    kb.add_button("📺 YouTube", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("🔍 Google", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("📱 VK", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("🐙 GitHub", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🎮 Twitch", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("💬 Discord", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("✈️ Telegram", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("👽 Reddit", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("🤖 ChatGPT", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("📚 Wikipedia", color=VkKeyboardColor.PRIMARY)
-    kb.add_line()
-    kb.add_button("⬅️ Назад", color=VkKeyboardColor.NEGATIVE)
-    return kb
-
-
-def kb_profile():
-    kb = VkKeyboard(one_time=False)
-    kb.add_button("👤 Мой профиль", color=VkKeyboardColor.PRIMARY)
-    kb.add_button("🔗 Отвязать VK", color=VkKeyboardColor.NEGATIVE)
-    kb.add_line()
     kb.add_button("⬅️ Назад", color=VkKeyboardColor.NEGATIVE)
     return kb
 
@@ -208,11 +410,17 @@ def kb_profile():
 # ЗАПУСК
 # ============================================================
 print("=" * 60)
-print("🔥 FSOCIETY VK BOT")
+print("🔥 FSOCIETY VK BOT + CAMERA + DOWNLOADER")
 print("=" * 60)
 print(f"📋 Команд: {commands.get_commands_count()}")
 print(f"👥 Пользователей: {len(auth.load_users())}")
+print(f"📷 Камера: {CAMERA_URL}")
 print("=" * 60)
+
+# ===== ЗАПУСК КАМЕРЫ В ФОНЕ =====
+threading.Thread(target=camera_detector, daemon=True).start()
+print("🎥 Детектор камеры запущен в фоне...")
+
 print("🔥 VK-бот запущен... Ожидание сообщений...")
 print("=" * 60)
 
@@ -227,21 +435,16 @@ for event in longpoll.listen():
         text_lower = text.lower()
         attachments = event.attachments
 
-        # ====================================================
-        # ПРОВЕРКА АВТОРИЗАЦИИ
-        # ====================================================
+        # ===== АВТОРИЗАЦИЯ =====
         user = auth.get_user_by_vk(user_id)
 
         if not user:
-            # === НЕ АВТОРИЗОВАН ===
             state_data = user_states.get(user_id, {})
             state = state_data.get("state")
 
             if state == "waiting_code":
-                # Ждём код из Gmail
                 nickname = state_data["nickname"]
                 success, result = auth.vk_login_step2(nickname, text, user_id)
-
                 if success:
                     del user_states[user_id]
                     send_message(user_id, f"✅ Вход выполнен! Добро пожаловать, {nickname}")
@@ -251,37 +454,28 @@ for event in longpoll.listen():
                 continue
 
             elif state == "waiting_nickname":
-                # Ждём никнейм
                 nickname = text
                 success, msg = auth.vk_login_step1(nickname)
-
                 if success:
                     user_states[user_id] = {"state": "waiting_code", "nickname": nickname}
-                    send_message(user_id, 
-                        "📧 Код отправлен на email.\n"
-                        "Введи его сюда (6 цифр)."
-                    )
+                    send_message(user_id, "📧 Код отправлен на email.\nВведи его сюда (6 цифр).")
                 else:
                     send_message(user_id, f"❌ {msg}\nПопробуй ещё раз или напиши /start")
                 continue
 
             else:
-                # Первое сообщение
                 if text_lower in ["/start", "начать", "привет", "меню", "/menu"]:
                     user_states[user_id] = {"state": "waiting_nickname"}
                     send_message(user_id,
                         "🔐 FSOCIETY — ВХОД\n\n"
                         "Введи свой никнейм с сайта.\n\n"
                         "Если нет аккаунта — зарегистрируйся:\n"
-                        "http://localhost:8080/register"
-                    )
+                        "http://localhost:8080/register")
                 else:
                     send_message(user_id, "🔐 Сначала войди. Напиши /start")
                 continue
 
-        # ====================================================
-        # АВТОРИЗОВАН — ВСЕ КОМАНДЫ
-        # ====================================================
+        # ===== АВТОРИЗОВАН =====
         nickname = user["nickname"]
 
         # ===== ФОТО (обои) =====
@@ -295,7 +489,6 @@ for event in longpoll.listen():
                         sizes = photo_info['sizes']
                         max_size = max(sizes, key=lambda x: x['width'])
                         url = max_size['url']
-
                         send_message(user_id, "⏳ Устанавливаю обои...")
                         result = commands.set_wallpaper_url(url)
                         send_message(user_id, f"✅ {result}")
@@ -304,48 +497,61 @@ for event in longpoll.listen():
                 send_message(user_id, f"❌ Ошибка: {e}")
             continue
 
-        # ===== ГЛАВНОЕ МЕНЮ =====
+        # ===== КОМАНДЫ =====
         if text_lower in ["/start", "начать", "привет", "меню", "/menu"]:
             send_message(user_id, f"🔥 Привет, {nickname}!\nГлавное меню:", kb_main())
+
+        elif text_lower == "🎥 камера" or text_lower == "/camera":
+            send_message(user_id, "🎥 Смотрю...")
+            frame = capture_frame()
+            if frame is not None:
+                filename = f"camera_{int(time.time())}.jpg"
+                cv2.imwrite(filename, frame)
+                send_photo(user_id, filename)
+                os.remove(filename)
+            else:
+                send_message(user_id, "❌ Камера не отвечает. Перезапусти IP Webcam.")
+
+        elif text_lower.startswith("/downloader"):
+            parts = text.split(" ", 1)
+            if len(parts) < 2 or not parts[1].strip():
+                send_message(user_id, "📥 Отправь ссылку так:\n\n/downloader https://youtu.be/...")
+            else:
+                url = parts[1].strip()
+                threading.Thread(target=download_media, args=(url, user_id), daemon=True).start()
+
+        elif text_lower == "📥 скачать видео":
+            send_message(user_id, "📥 Отправь ссылку с командой:\n\n/downloader <ссылка>")
+
+        elif text_lower == "📸 скриншот" or text_lower == "/screenshot":
+            try:
+                send_message(user_id, "📸 Делаю скриншот...")
+                img = ImageGrab.grab()
+                path = f"screenshot_{int(time.time())}.png"
+                img.save(path)
+                send_photo(user_id, path)
+                os.remove(path)
+            except Exception as e:
+                send_message(user_id, f"❌ Ошибка: {e}")
+
+        elif text_lower == "📊 статус" or text_lower == "/status":
+            send_message(user_id, commands.get_status())
+
+        elif text_lower == "⛔ выключить" or text_lower == "/shutdown":
+            send_message(user_id, commands.shutdown())
+
+        elif text_lower == "🔄 перезагрузить" or text_lower == "/restart":
+            send_message(user_id, commands.restart())
+
+        elif text_lower == "🔒 блокировка" or text_lower == "/lock":
+            send_message(user_id, commands.lock_pc())
 
         elif text_lower == "➡️ программы":
             send_message(user_id, "📁 Программы:", kb_programs())
 
-        elif text_lower == "➡️ приколы":
-            send_message(user_id, "🎭 Приколы:", kb_jokes())
-
-        elif text_lower == "➡️ система":
-            send_message(user_id, "🛠️ Система:", kb_system())
-
-        elif text_lower == "➡️ сайты":
-            send_message(user_id, "🌐 Сайты:", kb_sites())
-
-        elif text_lower == "👤 профиль":
-            send_message(user_id, "👤 Профиль:", kb_profile())
-
         elif text_lower == "⬅️ назад":
             send_message(user_id, "🔥 Главное меню:", kb_main())
 
-        # ===== ПРОФИЛЬ =====
-        elif text_lower == "👤 мой профиль":
-            avatar_info = "Есть" if user.get("avatar") else "Нет"
-            send_message(user_id,
-                f"👤 Твой профиль:\n\n"
-                f"Имя: {user['name']}\n"
-                f"Никнейм: {user['nickname']}\n"
-                f"Email: {user['email']}\n"
-                f"Аватарка: {avatar_info}\n"
-                f"VK ID: {user.get('vk_id', 'не привязан')}"
-            )
-
-        elif text_lower == "🔗 отвязать vk":
-            success, msg = auth.unlink_vk(user["id"])
-            if success:
-                send_message(user_id, "✅ VK отвязан. Напиши /start чтобы войти снова.")
-            else:
-                send_message(user_id, f"❌ {msg}")
-
-        # ===== ПОМОЩЬ =====
         elif text_lower == "❓ помощь" or text_lower == "/help":
             send_message(user_id, f"""
 📋 FSOCIETY VK BOT
@@ -361,87 +567,18 @@ for event in longpoll.listen():
 /lock — блокировка
 /status — статус ПК
 
+🎥 Камера:
+🎥 Камера — текущий кадр
+
+📥 Скачивание:
+/downloader <ссылка> — скачать видео (YouTube, TikTok, Shorts)
+
 🔹 Сайты:
 /site <url> — открыть сайт
-/sites <url1,url2> — несколько
-
-🔹 Обои:
-/wallpaper <url> — по ссылке
-→ или отправь фото в чат
-
-🔹 Своя команда:
+/wallpaper <url> — обои
 /cmd <команда> — выполнить
-/list — все команды
             """)
 
-        # ===== СКРИНШОТ =====
-        elif text_lower == "📸 скриншот" or text_lower == "/screenshot":
-            try:
-                send_message(user_id, "📸 Делаю скриншот...")
-                img = ImageGrab.grab()
-                path = f"screenshot_{int(time.time())}.png"
-                img.save(path)
-                send_photo(user_id, path)
-                os.remove(path)
-            except Exception as e:
-                send_message(user_id, f"❌ Ошибка: {e}")
-
-        # ===== СТАТУС =====
-        elif text_lower == "📊 статус" or text_lower == "/status":
-            send_message(user_id, commands.get_status())
-
-        # ===== ПИТАНИЕ =====
-        elif text_lower == "⛔ выключить" or text_lower == "/shutdown":
-            send_message(user_id, commands.shutdown())
-
-        elif text_lower == "🔄 перезагрузить" or text_lower == "/restart":
-            send_message(user_id, commands.restart())
-
-        elif text_lower == "🔒 блокировка" or text_lower == "/lock":
-            send_message(user_id, commands.lock_pc())
-
-        # ===== ОБОИ =====
-        elif text_lower == "🖼️ обои":
-            send_message(user_id, "🖼️ Отправь фото или /wallpaper <url>")
-
-        elif text_lower.startswith("/wallpaper "):
-            url = text.split(" ", 1)[1]
-            send_message(user_id, commands.set_wallpaper_url(url))
-
-        # ===== САЙТЫ =====
-        elif text_lower.startswith("/site "):
-            url = text.split(" ", 1)[1]
-            send_message(user_id, commands.open_url(url))
-
-        elif text_lower.startswith("/sites "):
-            urls = text.split(" ", 1)[1].split(",")
-            for u in urls:
-                u = u.strip()
-                if not u.startswith("http"):
-                    u = "https://" + u
-                commands.open_url(u)
-                time.sleep(0.5)
-            send_message(user_id, f"🌐 Открыто {len(urls)} сайтов!")
-
-        # ===== CMD =====
-        elif text_lower.startswith("/cmd "):
-            cmd = text.split(" ", 1)[1]
-            try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                output = result.stdout or result.stderr or "OK"
-                send_message(user_id, f"💻 {output[:3000]}")
-            except Exception as e:
-                send_message(user_id, f"❌ Ошибка: {e}")
-
-        # ===== СПИСОК КОМАНД =====
-        elif text_lower == "/list":
-            all_cmds = commands.get_all_commands()
-            chunks = [all_cmds[i:i+50] for i in range(0, len(all_cmds), 50)]
-            send_message(user_id, f"📋 Всего команд: {len(all_cmds)}")
-            for chunk in chunks[:3]:
-                send_message(user_id, "• " + "\n• ".join(chunk))
-
-        # ===== ПРОГРАММЫ =====
         elif text_lower == "💻 cmd":
             send_message(user_id, commands.open_cmd())
         elif text_lower == "⚡ powershell":
@@ -454,83 +591,23 @@ for event in longpoll.listen():
             send_message(user_id, commands.open_explorer())
         elif text_lower == "📊 диспетчер задач":
             send_message(user_id, commands.open_taskmgr())
-        elif text_lower == "🎨 paint":
-            send_message(user_id, commands.open_paint())
-        elif text_lower == "✂️ ножницы":
-            send_message(user_id, commands.open_snippingtool())
-        elif text_lower == "⚙️ панель управления":
-            send_message(user_id, commands.open_control())
-        elif text_lower == "🖥️ устройства":
-            send_message(user_id, commands.open_devmgmt())
 
-        # ===== ПРИКОЛЫ =====
-        elif text_lower == "🎵 рикролл":
-            send_message(user_id, commands.open_rickroll())
-        elif text_lower == "🎵 рикролл x5":
-            send_message(user_id, commands.open_rickroll_5())
-        elif text_lower == "🎵 рикролл x10":
-            send_message(user_id, commands.open_rickroll_10())
-        elif text_lower == "🦊 firefox x10":
-            send_message(user_id, commands.open_firefox_10())
-        elif text_lower == "🌐 chrome x10":
-            send_message(user_id, commands.open_chrome_10())
-        elif text_lower == "📝 блокнот x10":
-            send_message(user_id, commands.open_notepad_10())
-        elif text_lower == "💀 убить explorer":
-            send_message(user_id, commands.kill_explorer())
-        elif text_lower == "🔄 восст. explorer":
-            send_message(user_id, commands.restore_explorer())
-        elif text_lower == "🔊 макс. громкость":
-            send_message(user_id, commands.max_volume())
-        elif text_lower == "🔇 отключить звук":
-            send_message(user_id, commands.mute_volume())
+        elif text_lower.startswith("/site "):
+            url = text.split(" ", 1)[1]
+            send_message(user_id, commands.open_url(url))
 
-        # ===== СИСТЕМА =====
-        elif text_lower == "⚡ cpu":
-            send_message(user_id, commands.get_cpu())
-        elif text_lower == "🧠 ram":
-            send_message(user_id, commands.get_ram())
-        elif text_lower == "💾 диск":
-            send_message(user_id, commands.get_disk())
-        elif text_lower == "🔋 батарея":
-            send_message(user_id, commands.get_battery())
-        elif text_lower == "⏱️ аптайм":
-            send_message(user_id, commands.get_uptime())
-        elif text_lower == "📋 процессы":
-            send_message(user_id, commands.list_processes())
-        elif text_lower == "🌐 ip":
-            send_message(user_id, commands.get_ip())
-        elif text_lower == "📡 ping google":
-            send_message(user_id, commands.ping_google())
-        elif text_lower == "🔄 flush dns":
-            send_message(user_id, commands.flush_dns())
-        elif text_lower == "🧹 очистка temp":
-            send_message(user_id, commands.clean_temp())
-        elif text_lower == "🗑️ очистка корзины":
-            send_message(user_id, commands.empty_recycle())
+        elif text_lower.startswith("/wallpaper "):
+            url = text.split(" ", 1)[1]
+            send_message(user_id, commands.set_wallpaper_url(url))
 
-        # ===== САЙТЫ (КНОПКИ) =====
-        elif text_lower == "📺 youtube":
-            send_message(user_id, commands.open_youtube())
-        elif text_lower == "🔍 google":
-            send_message(user_id, commands.open_google())
-        elif text_lower == "📱 vk":
-            send_message(user_id, commands.open_vk())
-        elif text_lower == "🐙 github":
-            send_message(user_id, commands.open_github())
-        elif text_lower == "🎮 twitch":
-            send_message(user_id, commands.open_twitch())
-        elif text_lower == "💬 discord":
-            send_message(user_id, commands.open_discord())
-        elif text_lower == "✈️ telegram":
-            send_message(user_id, commands.open_telegram())
-        elif text_lower == "👽 reddit":
-            send_message(user_id, commands.open_reddit())
-        elif text_lower == "🤖 chatgpt":
-            send_message(user_id, commands.open_chatgpt())
-        elif text_lower == "📚 wikipedia":
-            send_message(user_id, commands.open_wikipedia())
+        elif text_lower.startswith("/cmd "):
+            cmd = text.split(" ", 1)[1]
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                output = result.stdout or result.stderr or "OK"
+                send_message(user_id, f"💻 {output[:3000]}")
+            except Exception as e:
+                send_message(user_id, f"❌ Ошибка: {e}")
 
-        # ===== НЕИЗВЕСТНАЯ =====
         else:
             send_message(user_id, "❌ Неизвестная команда.\nНапиши /help или /start")
