@@ -1,7 +1,37 @@
-downloads/
-ffmpeg.exe
-ffprobe.exe
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Большие файлы
+ffmpeg.exe
+ffprobe.exe
+downloads/
+stickers/
+gifs/
+avatars/
+*.mp4
+*.mkv
+*.webm
+*.mp3
+*.wav
+
+# Логи и БД
 *.log
+*.db
 bot_log.txt
+messenger.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
